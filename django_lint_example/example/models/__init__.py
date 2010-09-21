@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib import admin
 
 class NullableModel(models.Model):
     TRUTH_VALUE = True
@@ -7,7 +8,6 @@ class NullableModel(models.Model):
     charfield_2 = models.CharField(max_length=100, null=TRUTH_VALUE)
     textfield = models.TextField(null=True, blank=True)
 
-    boolean = models.BooleanField(null=True, blank=True)
     boolean_false = models.BooleanField(default=True)
 
     nullable_boolean = models.NullBooleanField()
@@ -110,6 +110,9 @@ class MisorderedMethodsModel(models.Model):
 class Model1(models.Model):
     dummy = models.CharField(max_length=1)
 
+    class Meta:
+        verbose_name_plural = 'right'
+
     def __unicode__(self):
         return self.dummy
 
@@ -119,7 +122,13 @@ class Model2(models.Model):
     def __unicode__(self):
         return self.dummy
 
+    class Meta:
+        verbose_name_plural = 'wrong'
+
 class Model3(models.Model):
+    class Meta:
+        verbose_name_plural = 'wrong'
+
     dummy = models.CharField(max_length=1)
 
     def __unicode__(self):
@@ -134,6 +143,9 @@ class Model4(models.Model):
 class Model5(models.Model):
     dummy = models.CharField(max_length=1)
 
+    def get_absolute_url(self):
+        return "/"
+
     def __unicode__(self):
         return self.dummy
 
@@ -145,3 +157,18 @@ class AbstractModel(models.Model):
 
 class DerivedModel(AbstractModel):
     bar = models.CharField(max_length=1)
+
+class WeirdPrimaryKeyModel(models.Model):
+    primary_key = models.ForeignKey(Model1, primary_key=True)
+    unique_field = models.ForeignKey(Model2, unique=True)
+    not_both = models.ForeignKey(Model3, primary_key=True, unique=False)
+
+class ManyToManyModel(models.Model):
+    nullable = models.ManyToManyField(Model2, null=True)
+    blank = models.ManyToManyField(Model3, blank=True)
+
+class AdminKlass(admin.ModelAdmin):
+    search_fields = ('nullable',)
+
+    class Meta:
+        model = ManyToManyModel

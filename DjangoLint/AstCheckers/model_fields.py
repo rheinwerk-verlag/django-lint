@@ -43,9 +43,7 @@ class ModelFieldsChecker(BaseChecker):
         'W6007': (
             '%s: CharField with huge (%d/%d) max_length instead of TextField',
         ''),
-        'W6008': (
-            '%s: Uses deprecated auto_now or auto_now_add',
-        ''),
+        'W6008': ('%s: Uses superceded auto_now or auto_now_add', ''),
         'W6009': (
             '%s: NullBooleanField instead of BooleanField with null=True',
         ''),
@@ -54,6 +52,12 @@ class ModelFieldsChecker(BaseChecker):
         'W6012': (
             '%s: BooleanField with default=True will not be reflected in database',
         ''),
+        'W6013': (
+            '%s: Unique ForeignKey constraint better modelled as OneToOneField',
+        ''),
+        'W6014': ('%s: primary_key=True should imply unique=True', ''),
+        'W6015': ('%s: %s=False is implicit', ''),
+        'W6016': ('%s: Nullable ManyToManyField makes no sense', ''),
     }
 
     options = (
@@ -80,7 +84,7 @@ class ModelFieldsChecker(BaseChecker):
 
         if is_model(node, check_base_classes=False) and self.field_count == 0:
             self.add_message('W6003', node=node)
-        elif self.field_count >= self.config.max_model_fields:
+        elif self.field_count > self.config.max_model_fields:
             self.add_message('W6002', node=node,
                 args=(self.field_count, self.config.max_model_fields))
 
@@ -104,11 +108,13 @@ class ModelFieldsChecker(BaseChecker):
         self.field_count += 1
 
         # Parse kwargs
-        options = dict([(option, False) for option in (
+        options = dict([(option, None) for option in (
             'null',
             'blank',
+            'unique',
             'default',
             'auto_now',
+            'primary_key',
             'auto_now_add',
             'verify_exists',
             'related_name',
@@ -122,10 +128,18 @@ class ModelFieldsChecker(BaseChecker):
             if not isinstance(arg, astng.Keyword):
                 continue
 
-
             for option in options.keys():
                 if arg.arg == option:
-                    options[option] = safe_infer(arg.value).value
+                    try:
+                        options[option] = safe_infer(arg.value).value
+                    except AttributeError:
+                        # Don't lint this field if we cannot infer everything
+                        return
+
+        if not val.name.lower().startswith('null'):
+            for option in ('null', 'blank'):
+                if options[option] is False:
+                    self.add_message('W6015', node=node, args=(assname, option,))
 
         # Field type specific checks
         if val.name in ('CharField', 'TextField'):
@@ -133,7 +147,7 @@ class ModelFieldsChecker(BaseChecker):
                 self.add_message('W6000', node=node, args=(assname,))
 
             if val.name == 'CharField' and \
-                    options['max_length'] >= self.config.max_charfield_length:
+                    options['max_length'] > self.config.max_charfield_length:
                 self.add_message('W6007', node=node, args=(
                     assname,
                     options['max_length'],
@@ -152,8 +166,13 @@ class ModelFieldsChecker(BaseChecker):
             elif not options['related_name']:
                 self.add_message('W6006', node=node, args=(assname,))
 
+            if options['primary_key'] and options['unique'] is False:
+                self.add_message('W6014', node=node, args=(assname,))
+            elif options['primary_key'] or options['unique']:
+                self.add_message('W6013', node=node, args=(assname,))
+
         elif val.name == 'URLField':
-            if options['verify_exists'] is not None:
+            if options['verify_exists'] is None:
                 self.add_message('W6011', node=node, args=(assname,))
 
         elif val.name in ('PositiveSmallIntegerField', 'SmallIntegerField'):
@@ -161,6 +180,10 @@ class ModelFieldsChecker(BaseChecker):
 
         elif val.name == 'NullBooleanField':
             self.add_message('W6009', node=node, args=(assname,))
+
+        elif val.name == 'ManyToManyField':
+            if options['null']:
+                self.add_message('W6016', node=node, args=(assname,))
 
         # Generic checks
         if options['null'] and not options['blank']:

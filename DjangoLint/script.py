@@ -54,15 +54,40 @@ def main():
         default=False,
         help='run normal PyLint checks',
     )
+    parser.add_option(
+        '-e',
+        '--errors',
+        dest='errors',
+        action='store_true',
+        default=False,
+        help='only show errors',
+    )
+    parser.add_option(
+        '-f',
+        '--format',
+        dest='outputformat',
+        metavar='OUTPUT',
+        default='text',
+        help='Set the output format. Available formats are text,'
+        'parseable, colorized, msvs (visual studio) and html',
+    )
 
     options, args = parser.parse_args()
 
     try:
-        target = args[0]
+        args[0]
     except IndexError:
-        target = '.'
+        args = ['.']
 
-    target = os.path.abspath(target)
+    target = os.path.abspath(args[0])
+
+    if not os.path.exists(target):
+        try:
+            # Is target a module?
+            x = __import__(args[0], locals(), globals(), [], -1)
+            target = sys.modules[args[0]].__path__[0]
+        except:
+            pass
 
     if not os.path.exists(target):
         raise parser.error(
@@ -97,6 +122,7 @@ def main():
 
     linter = lint.PyLinter()
     linter.set_option('reports', options.report)
+    linter.set_option('output-format', options.outputformat)
 
     if options.pylint:
         checkers.initialize(linter)
@@ -104,6 +130,12 @@ def main():
             linter.disable_message(msg)
 
     AstCheckers.register(linter)
+
+    if options.errors:
+        linter.set_option('disable-msg-cat', 'WCRI')
+        linter.set_option('reports', False)
+        linter.set_option('persistent', False)
+
     linter.check([target])
 
-    return 0
+    return linter.msg_status

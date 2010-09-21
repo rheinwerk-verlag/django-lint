@@ -48,8 +48,7 @@ class ModelMethodsChecker(BaseChecker):
         '',),
         'W8011': ('Use __unicode__ instead of __str__', '',),
         'W8012': ('Method should come after standard model methods', '',),
-        'W8013': ('Standard model method should come before %r', '',),
-        'W8014': ('Missing __unicode__ method', '',),
+        'W8013': ('%s should come before %r', '',),
         'W8015': (
             '%d models have common prefix (%r) - rename or split application',
         '',),
@@ -72,6 +71,9 @@ class ModelMethodsChecker(BaseChecker):
             self.add_message('W8010', node=node.root(),
                 args=(len(self.model_names), self.config.max_models))
 
+        if not self.model_names:
+            return
+
         for names in combinations(self.model_names, 4):
             common = os.path.commonprefix(names)
             if len(common) >= 4:
@@ -86,15 +88,10 @@ class ModelMethodsChecker(BaseChecker):
                     args=(len(xs), common,))
                 break
 
-    def visit_function(self, node):
-        if not is_model(node.parent.frame()):
-            return
-
-        if node.name == '__str__':
-            self.add_message('W8011', node=node)
-
+    def _visit_django_attribute(self, node, is_method=True):
         try:
             idx = [
+                'Meta',
                 '__unicode__',
                 '__str__',
                 'save',
@@ -106,7 +103,10 @@ class ModelMethodsChecker(BaseChecker):
                 self.add_message('W8012', node=self.prev_node)
 
             elif idx < self.prev_idx:
-                self.add_message('W8013', node=node, args=self.prev_node.name)
+                noun = is_method and 'Standard model method' or '"Meta" class'
+                self.add_message(
+                    'W8013', node=node, args=(noun, self.prev_node.name)
+                )
 
         except ValueError:
             idx = -1
@@ -114,13 +114,33 @@ class ModelMethodsChecker(BaseChecker):
         self.prev_idx = idx
         self.prev_node = node
 
-    def visit_class(self, node):
-        if not is_model(node):
+    def visit_function(self, node):
+        if not is_model(node.parent.frame()):
             return
 
-        self.model_names.append(node.name)
-        self.prev_idx = None
-        self.prev_name = None
+        if node.name == '__str__':
+            self.add_message('W8011', node=node)
+
+        self._visit_django_attribute(node)
+
+    def visit_class(self, node):
+        if is_model(node):
+            self.model_names.append(node.name)
+            self.prev_idx = None
+            self.prev_node = None
+
+        elif is_model(node.parent.frame()):
+            # Nested class
+            self._visit_django_attribute(node, is_method=False)
+
+    def visit_assname(self, node):
+        if not is_model(node.parent.frame()):
+            return
+
+        if self.prev_idx >= 0:
+            self.add_message('W8013', node=node, args=(
+                '%r assignment' % node.name, self.prev_node.name,
+            ))
 
     def leave_class(self, node):
         if node.name == 'Meta' and is_model(node.parent.parent):
@@ -135,7 +155,3 @@ class ModelMethodsChecker(BaseChecker):
 
         if not is_model(node):
             return
-
-        if '__unicode__' not in [x.name for x in node.mymethods()] and \
-                    not hasattr(node, '_django_abstract'):
-            self.add_message('W8014', node=node)

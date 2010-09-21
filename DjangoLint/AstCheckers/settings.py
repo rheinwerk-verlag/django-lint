@@ -29,28 +29,34 @@ class SettingsChecker(BaseChecker):
     msgs = {
         'W7001': ('Missing required field %r', '',),
         'W7002': ('Empty %r setting', '',),
-        'W7003': ('SessionMiddleware after AuthenticationMiddleware', ''),
-        'W7004': ('ConditionalGetMiddleware after CommonMiddleware', ''),
+        'W7003': ('%s after %s', ''),
+        'W7005': ('Non-absolute directory %r in TEMPLATE_DIRS', ''),
+        'W7006': ('%r in TEMPLATE_DIRS should use forward slashes', ''),
     }
 
     def leave_module(self, node):
         if node.name.split('.')[-1] != 'settings':
             return
 
+        self.check_required_fields(node)
+        self.check_middleware(node)
+        self.check_template_dirs(node)
+
+    def check_required_fields(self, node):
         REQUIRED_FIELDS = {
             'DEBUG': bool,
             'TEMPLATE_DEBUG': bool,
             'INSTALLED_APPS': tuple,
             'MANAGERS': tuple,
             'ADMINS': tuple,
+            'MIDDLEWARE_CLASSES': tuple,
         }
 
         for field, req_type in REQUIRED_FIELDS.iteritems():
             if field not in node.locals.keys():
                 self.add_message('W7001', args=field, node=node)
                 continue
-            
-            
+
             if req_type is tuple:
                 ass = node.locals[field][-1]
                 val = safe_infer(ass)
@@ -58,24 +64,54 @@ class SettingsChecker(BaseChecker):
                 if val and not val.get_children():
                     self.add_message('W7002', args=field, node=ass)
 
-        ass = node.locals['MIDDLEWARE_CLASSES'][-1]
-        middleware = [x.value for x in safe_infer(ass).get_children()
-            if isinstance(safe_infer(x), astng.Const)
-        ]
-
-        SESSION = 'django.contrib.sessions.middleware.SessionMiddleware'
-        AUTH = 'django.contrib.auth.middleware.AuthenticationMiddleware'
-        CGET = 'django.middleware.http.ConditionalGetMiddleware'
-        COMMON = 'django.middleware.common.CommonMiddleware'
+    def get_constant_values(self, node, key):
+        try:
+            ass = node.locals[key][-1]
+        except KeyError:
+            return
 
         try:
-            if middleware.index(SESSION) > middleware.index(AUTH):
-                self.add_message('W7003', node=node)
-        except ValueError:
-            pass
+            xs = safe_infer(ass).get_children()
+        except AttributeError:
+            return
 
-        try:
-            if middleware.index(CGET) > middleware.index(COMMON):
-                self.add_message('W7004', node=node)
-        except ValueError:
-            pass
+        return [(x, x.value) for x in xs if isinstance(safe_infer(x), astng.Const)]
+
+    def check_middleware(self, node):
+        middleware = self.get_constant_values(node, 'MIDDLEWARE_CLASSES')
+        if middleware is None:
+            return
+
+        relations = ((
+            'django.contrib.sessions.middleware.SessionMiddleware',
+            'django.contrib.auth.middleware.AuthenticationMiddleware',
+        ), (
+            'django.middleware.http.ConditionalGetMiddleware',
+            'django.middleware.common.CommonMiddleware',
+        ))
+
+        lookup = [y for x, y in middleware]
+        node_lookup = dict([(y, x) for x, y in middleware])
+
+        for a, b in relations:
+            try:
+                if lookup.index(a) > lookup.index(b):
+                    self.add_message(
+                        'W7003',
+                        args=tuple([x.split('.')[-1] for x in (a, b)]),
+                        node=node_lookup[a],
+                    )
+            except ValueError:
+                pass
+
+    def check_template_dirs(self, node):
+        template_dirs = self.get_constant_values(node, 'TEMPLATE_DIRS')
+        if template_dirs is None:
+            return
+
+        for dirnode, dirname in template_dirs:
+            if not (dirname.startswith('/') or dirname[1:].startswith(':')):
+                self.add_message('W7005', args=dirname, node=dirnode)
+
+            if dirname.find('\\') > 0:
+                self.add_message('W7006', args=dirname, node=dirnode)
