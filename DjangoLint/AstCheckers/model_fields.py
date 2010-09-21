@@ -43,7 +43,7 @@ class ModelFieldsChecker(BaseChecker):
         'W6007': (
             '%s: CharField with huge (%d/%d) max_length instead of TextField',
         ''),
-        'W6008': ('%s: Uses superceded auto_now or auto_now_add', ''),
+        #'W6008': ('%s: Uses superceded auto_now or auto_now_add', ''),
         'W6009': (
             '%s: NullBooleanField instead of BooleanField with null=True',
         ''),
@@ -189,8 +189,8 @@ class ModelFieldsChecker(BaseChecker):
         if options['null'] and not options['blank']:
             self.add_message('W6004', node=node, args=(assname,))
 
-        if options['auto_now'] or options['auto_now_add']:
-            self.add_message('W6008', node=node, args=(assname,))
+        #if options['auto_now'] or options['auto_now_add']:
+        #    self.add_message('W6008', node=node, args=(assname,))
 
         for suffix in ('date', 'month', 'year'):
             if options['unique_for_%s' % suffix]:
