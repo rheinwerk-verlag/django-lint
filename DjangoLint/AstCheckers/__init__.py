@@ -27,6 +27,5 @@ def register(linter):
 
     linter.register_checker(SizeChecker(linter))
     linter.register_checker(AdminChecker(linter))
-    linter.register_checker(SettingsChecker(linter))
     linter.register_checker(ModelFieldsChecker(linter))
     linter.register_checker(ModelMethodsChecker(linter))
