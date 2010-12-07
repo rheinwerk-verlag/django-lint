@@ -24,6 +24,9 @@ setup_args = dict(
         'DjangoLint',
         'DjangoLint.AstCheckers',
     ],
+    required=[
+        'pylint',
+    ],
     author='Chris Lamb',
     author_email='chris@chris-lamb.co.uk',
 )
